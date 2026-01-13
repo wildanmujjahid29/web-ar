@@ -1,54 +1,172 @@
 <!DOCTYPE html>
 <html>
-<head>
+  <head>
     <title>AR Penanda Barang</title>
     <script src="https://aframe.io/releases/1.3.0/aframe.min.js"></script>
     <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar-nft.js"></script>
-</head>
-<body style="margin: 0; overflow: hidden;">
-
-    <div style="position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 999;">
-        <button id="btn-tanda" style="padding: 15px 30px; font-size: 18px; background: red; color: white; border-radius: 10px; border: none;">
-            Tandai Barang di Sini!
-        </button>
+  </head>
+  <body style="margin: 0; overflow: hidden">
+    <div
+      style="
+        position: fixed;
+        bottom: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 999;
+        background: rgba(255, 255, 255, 0.95);
+        padding: 20px;
+        border-radius: 15px;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        align-items: center;
+      "
+    >
+      <input
+        id="input-nama"
+        type="text"
+        placeholder="Nama Barang"
+        style="
+          padding: 10px;
+          font-size: 16px;
+          border-radius: 8px;
+          border: 1px solid #ccc;
+          width: 220px;
+        "
+      />
+      <input
+        id="input-foto"
+        type="file"
+        accept="image/*"
+        capture="environment"
+        style="
+          padding: 10px;
+          font-size: 16px;
+          border-radius: 8px;
+          border: 1px solid #ccc;
+          width: 220px;
+        "
+      />
+      <button
+        id="btn-tanda"
+        style="
+          padding: 15px 30px;
+          font-size: 18px;
+          background: red;
+          color: white;
+          border-radius: 10px;
+          border: none;
+          width: 220px;
+        "
+      >
+        Tandai Barang di Sini!
+      </button>
     </div>
 
-    <a-scene embedded arjs="sourceType: webcam; debugUIEnabled: false;" vr-mode-ui="enabled: false">
-        
-        <a-camera gps-camera rotation-reader></a-camera>
+    <a-scene
+      embedded
+      arjs="sourceType: webcam; debugUIEnabled: false;"
+      vr-mode-ui="enabled: false"
+    >
+      <a-camera gps-camera rotation-reader></a-camera>
 
-        <a-entity id="container-barang"></a-entity>
-
+      <a-entity id="container-barang"></a-entity>
     </a-scene>
 
     <script>
-        // Logika "Bahasa Bayi" buat naruh barang
-        const tombol = document.getElementById('btn-tanda');
-        const wadahBarang = document.getElementById('container-barang');
+      // Logika AR Penanda Barang dengan Foto, Nama, dan Persistence
+      const tombol = document.getElementById("btn-tanda");
+      const wadahBarang = document.getElementById("container-barang");
+      const inputNama = document.getElementById("input-nama");
+      const inputFoto = document.getElementById("input-foto");
 
-        tombol.onclick = function() {
-            // 1. Tanya HP: "Sekarang kita di posisi mana?"
-            navigator.geolocation.getCurrentPosition((position) => {
-                const lat = position.coords.latitude;
-                const lon = position.coords.longitude;
+      // Fungsi untuk menyimpan barang ke localStorage
+      function simpanBarang(barang) {
+        let data = JSON.parse(localStorage.getItem("ar-barang") || "[]");
+        data.push(barang);
+        localStorage.setItem("ar-barang", JSON.stringify(data));
+      }
 
-                alert("Barang ditandai di: " + lat + ", " + lon);
+      // Fungsi untuk render semua barang dari localStorage
+      function renderSemuaBarang() {
+        wadahBarang.innerHTML = "";
+        let data = JSON.parse(localStorage.getItem("ar-barang") || "[]");
+        data.forEach((barang) => {
+          // Buat entity gambar
+          const gambar = document.createElement("a-image");
+          gambar.setAttribute("src", barang.foto);
+          gambar.setAttribute("scale", "2 2 2");
+          gambar.setAttribute(
+            "gps-entity-place",
+            `latitude: ${barang.lat}; longitude: ${barang.lon};`
+          );
+          gambar.setAttribute("look-at", "[gps-camera]");
 
-                // 2. Bikin objek kotak (barang) 3D
-                const kotakBaru = document.createElement('a-box');
-                
-                // 3. Kasih warna merah dan ukuran
-                kotakBaru.setAttribute('material', 'color: yellow;');
-                kotakBaru.setAttribute('scale', '1 1 1');
+          // Buat entity text nama
+          const nama = document.createElement("a-text");
+          nama.setAttribute("value", barang.nama);
+          nama.setAttribute("align", "center");
+          nama.setAttribute("color", "black");
+          nama.setAttribute("scale", "5 5 5");
+          nama.setAttribute("position", "0 2 0");
+          nama.setAttribute(
+            "gps-entity-place",
+            `latitude: ${barang.lat}; longitude: ${barang.lon};`
+          );
+          nama.setAttribute("look-at", "[gps-camera]");
 
-                // 4. KUNCI posisinya di koordinat GPS tadi (Persistence)
-                // Ini bikin barang diem di situ meskipun lo jalan menjauh
-                kotakBaru.setAttribute('gps-entity-place', `latitude: ${lat}; longitude: ${lon};`);
+          wadahBarang.appendChild(gambar);
+          wadahBarang.appendChild(nama);
+        });
+      }
 
-                // 5. Masukkan ke dalam dunia AR
-                wadahBarang.appendChild(kotakBaru);
-            });
-        };
+      // Render barang saat halaman dibuka
+      window.addEventListener("DOMContentLoaded", renderSemuaBarang);
+
+      tombol.onclick = function () {
+        const namaBarang = inputNama.value.trim();
+        const file = inputFoto.files[0];
+        if (!namaBarang) {
+          alert("Nama barang wajib diisi!");
+          return;
+        }
+        if (!file) {
+          alert("Foto barang wajib diupload!");
+          return;
+        }
+        // Ambil posisi GPS
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            const lat = position.coords.latitude;
+            const lon = position.coords.longitude;
+
+            // Baca file foto jadi dataURL
+            const reader = new FileReader();
+            reader.onload = function (e) {
+              const fotoData = e.target.result;
+              // Simpan ke localStorage
+              const barang = {
+                nama: namaBarang,
+                foto: fotoData,
+                lat: lat,
+                lon: lon,
+              };
+              simpanBarang(barang);
+              alert("Barang berhasil ditandai di: " + lat + ", " + lon);
+              // Reset input
+              inputNama.value = "";
+              inputFoto.value = "";
+              // Render ulang
+              renderSemuaBarang();
+            };
+            reader.readAsDataURL(file);
+          },
+          (err) => {
+            alert("Gagal mendapatkan lokasi: " + err.message);
+          }
+        );
+      };
     </script>
-</body>
+  </body>
 </html>
