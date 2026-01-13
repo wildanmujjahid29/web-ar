@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>AR Penanda Barang</title>
+    <script src="https://aframe.io/releases/1.3.0/aframe.min.js"></script>
+    <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar-nft.js"></script>
+</head>
+<body style="margin: 0; overflow: hidden;">
+
+    <div style="position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 999;">
+        <button id="btn-tanda" style="padding: 15px 30px; font-size: 18px; background: red; color: white; border-radius: 10px; border: none;">
+            Tandai Barang di Sini!
+        </button>
+    </div>
+
+    <a-scene embedded arjs="sourceType: webcam; debugUIEnabled: false;" vr-mode-ui="enabled: false">
+        
+        <a-camera gps-camera rotation-reader></a-camera>
+
+        <a-entity id="container-barang"></a-entity>
+
+    </a-scene>
+
+    <script>
+        // Logika "Bahasa Bayi" buat naruh barang
+        const tombol = document.getElementById('btn-tanda');
+        const wadahBarang = document.getElementById('container-barang');
+
+        tombol.onclick = function() {
+            // 1. Tanya HP: "Sekarang kita di posisi mana?"
+            navigator.geolocation.getCurrentPosition((position) => {
+                const lat = position.coords.latitude;
+                const lon = position.coords.longitude;
+
+                alert("Barang ditandai di: " + lat + ", " + lon);
+
+                // 2. Bikin objek kotak (barang) 3D
+                const kotakBaru = document.createElement('a-box');
+                
+                // 3. Kasih warna merah dan ukuran
+                kotakBaru.setAttribute('material', 'color: yellow;');
+                kotakBaru.setAttribute('scale', '1 1 1');
+
+                // 4. KUNCI posisinya di koordinat GPS tadi (Persistence)
+                // Ini bikin barang diem di situ meskipun lo jalan menjauh
+                kotakBaru.setAttribute('gps-entity-place', `latitude: ${lat}; longitude: ${lon};`);
+
+                // 5. Masukkan ke dalam dunia AR
+                wadahBarang.appendChild(kotakBaru);
+            });
+        };
+    </script>
+</body>
+</html>
