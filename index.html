@@ -1,6 +1,9 @@
 <!DOCTYPE html>
 <html>
   <head>
+    <!-- TensorFlow.js & COCO-SSD -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.18.0/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.2/dist/coco-ssd.min.js"></script>
     <title>AR Penanda Barang</title>
     <script src="https://aframe.io/releases/1.3.0/aframe.min.js"></script>
     <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar-nft.js"></script>
@@ -23,6 +26,55 @@
         align-items: center;
       "
     >
+      <div style="position: relative; width: 220px; height: 165px">
+        <video
+          id="preview-foto"
+          autoplay
+          playsinline
+          style="
+            display: none;
+            width: 220px;
+            height: 165px;
+            border-radius: 10px;
+            object-fit: cover;
+            position: absolute;
+            left: 0;
+            top: 0;
+          "
+        ></video>
+        <canvas
+          id="canvas-bbox"
+          width="220"
+          height="165"
+          style="
+            display: none;
+            position: absolute;
+            left: 0;
+            top: 0;
+            pointer-events: none;
+          "
+        ></canvas>
+        <canvas
+          id="canvas-foto"
+          width="220"
+          height="165"
+          style="display: none; position: absolute; left: 0; top: 0"
+        ></canvas>
+      </div>
+      <button
+        id="btn-foto"
+        style="
+          padding: 12px 30px;
+          font-size: 16px;
+          background: #007bff;
+          color: white;
+          border-radius: 10px;
+          border: none;
+          width: 220px;
+        "
+      >
+        Ambil Foto Barang
+      </button>
       <input
         id="input-nama"
         type="text"
@@ -33,19 +85,7 @@
           border-radius: 8px;
           border: 1px solid #ccc;
           width: 220px;
-        "
-      />
-      <input
-        id="input-foto"
-        type="file"
-        accept="image/*"
-        capture="environment"
-        style="
-          padding: 10px;
-          font-size: 16px;
-          border-radius: 8px;
-          border: 1px solid #ccc;
-          width: 220px;
+          display: none;
         "
       />
       <button
@@ -58,9 +98,10 @@
           border-radius: 10px;
           border: none;
           width: 220px;
+          display: none;
         "
       >
-        Tandai Barang di Sini!
+        Simpan Barang di Sini!
       </button>
     </div>
 
@@ -76,10 +117,25 @@
 
     <script>
       // Logika AR Penanda Barang dengan Foto, Nama, dan Persistence
-      const tombol = document.getElementById("btn-tanda");
+      const tombolSimpan = document.getElementById("btn-tanda");
+      const tombolFoto = document.getElementById("btn-foto");
       const wadahBarang = document.getElementById("container-barang");
       const inputNama = document.getElementById("input-nama");
-      const inputFoto = document.getElementById("input-foto");
+      const videoPreview = document.getElementById("preview-foto");
+      const canvasFoto = document.getElementById("canvas-foto");
+      const canvasBbox = document.getElementById("canvas-bbox");
+      const ctxBbox = canvasBbox.getContext("2d");
+
+      let fotoData = null;
+      let posisiBarang = null;
+      let streamKamera = null;
+      let modelCoco = null;
+      let deteksiAktif = false;
+      // Load COCO-SSD model saat halaman siap
+      window.addEventListener("DOMContentLoaded", async () => {
+        modelCoco = await cocoSsd.load();
+        renderSemuaBarang();
+      });
 
       // Fungsi untuk menyimpan barang ke localStorage
       function simpanBarang(barang) {
@@ -97,10 +153,11 @@
           const gambar = document.createElement("a-image");
           gambar.setAttribute("src", barang.foto);
           gambar.setAttribute("scale", "2 2 2");
-          gambar.setAttribute(
-            "gps-entity-place",
-            `latitude: ${barang.lat}; longitude: ${barang.lon};`
-          );
+          let gpsAttr = `latitude: ${barang.lat}; longitude: ${barang.lon}`;
+          if (barang.alt !== undefined && !isNaN(barang.alt)) {
+            gpsAttr += `; altitude: ${barang.alt}`;
+          }
+          gambar.setAttribute("gps-entity-place", gpsAttr + ";");
           gambar.setAttribute("look-at", "[gps-camera]");
 
           // Buat entity text nama
@@ -110,10 +167,7 @@
           nama.setAttribute("color", "black");
           nama.setAttribute("scale", "5 5 5");
           nama.setAttribute("position", "0 2 0");
-          nama.setAttribute(
-            "gps-entity-place",
-            `latitude: ${barang.lat}; longitude: ${barang.lon};`
-          );
+          nama.setAttribute("gps-entity-place", gpsAttr + ";");
           nama.setAttribute("look-at", "[gps-camera]");
 
           wadahBarang.appendChild(gambar);
@@ -124,47 +178,106 @@
       // Render barang saat halaman dibuka
       window.addEventListener("DOMContentLoaded", renderSemuaBarang);
 
-      tombol.onclick = function () {
+      // Step 1: Ambil foto barang
+      tombolFoto.onclick = async function () {
+        // Minta akses kamera
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          alert("Perangkat tidak mendukung kamera langsung.");
+          return;
+        }
+        try {
+          streamKamera = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: "environment" },
+          });
+          videoPreview.srcObject = streamKamera;
+          videoPreview.style.display = "block";
+          canvasBbox.style.display = "block";
+          deteksiAktif = true;
+          tombolFoto.textContent = "Ambil Foto Sekarang";
+          // Mulai deteksi objek
+          requestAnimationFrame(deteksiLoop);
+          tombolFoto.onclick = function () {
+            // Capture frame ke canvas
+            canvasFoto.getContext("2d").drawImage(videoPreview, 0, 0, 220, 165);
+            fotoData = canvasFoto.toDataURL("image/jpeg", 0.92);
+            // Stop kamera
+            streamKamera.getTracks().forEach((track) => track.stop());
+            videoPreview.style.display = "none";
+            canvasBbox.style.display = "none";
+            canvasFoto.style.display = "block";
+            tombolFoto.style.display = "none";
+            inputNama.style.display = "block";
+            tombolSimpan.style.display = "block";
+            deteksiAktif = false;
+          };
+        } catch (e) {
+          alert("Tidak bisa mengakses kamera: " + e.message);
+        }
+      };
+
+      // Loop deteksi objek dan gambar bounding box
+      async function deteksiLoop() {
+        if (!deteksiAktif || !modelCoco) return;
+        // Deteksi objek di frame video
+        const prediksi = await modelCoco.detect(videoPreview);
+        ctxBbox.clearRect(0, 0, canvasBbox.width, canvasBbox.height);
+        prediksi.forEach((obj) => {
+          // Gambar bounding box
+          ctxBbox.strokeStyle = "#00FF00";
+          ctxBbox.lineWidth = 2;
+          ctxBbox.strokeRect(
+            obj.bbox[0],
+            obj.bbox[1],
+            obj.bbox[2],
+            obj.bbox[3]
+          );
+          ctxBbox.font = "12px Arial";
+          ctxBbox.fillStyle = "#00FF00";
+          ctxBbox.fillText(obj.class, obj.bbox[0] + 2, obj.bbox[1] + 14);
+        });
+        requestAnimationFrame(deteksiLoop);
+      }
+
+      // Step 2: Simpan barang setelah isi nama
+      tombolSimpan.onclick = function () {
         const namaBarang = inputNama.value.trim();
-        const file = inputFoto.files[0];
         if (!namaBarang) {
           alert("Nama barang wajib diisi!");
           return;
         }
-        if (!file) {
-          alert("Foto barang wajib diupload!");
+        if (!fotoData) {
+          alert("Ambil foto barang dulu!");
           return;
         }
-        // Ambil posisi GPS
+        // Ambil posisi GPS (dengan altitude jika ada)
         navigator.geolocation.getCurrentPosition(
           (position) => {
             const lat = position.coords.latitude;
             const lon = position.coords.longitude;
-
-            // Baca file foto jadi dataURL
-            const reader = new FileReader();
-            reader.onload = function (e) {
-              const fotoData = e.target.result;
-              // Simpan ke localStorage
-              const barang = {
-                nama: namaBarang,
-                foto: fotoData,
-                lat: lat,
-                lon: lon,
-              };
-              simpanBarang(barang);
-              alert("Barang berhasil ditandai di: " + lat + ", " + lon);
-              // Reset input
-              inputNama.value = "";
-              inputFoto.value = "";
-              // Render ulang
-              renderSemuaBarang();
+            const alt = position.coords.altitude;
+            const barang = {
+              nama: namaBarang,
+              foto: fotoData,
+              lat: lat,
+              lon: lon,
+              alt: alt,
             };
-            reader.readAsDataURL(file);
+            simpanBarang(barang);
+            alert("Barang berhasil ditandai di: " + lat + ", " + lon);
+            // Reset input
+            inputNama.value = "";
+            fotoData = null;
+            canvasFoto.style.display = "none";
+            tombolFoto.style.display = "block";
+            tombolFoto.textContent = "Ambil Foto Barang";
+            inputNama.style.display = "none";
+            tombolSimpan.style.display = "none";
+            renderSemuaBarang();
           },
           (err) => {
             alert("Gagal mendapatkan lokasi: " + err.message);
-          }
+          },
+          { enableHighAccuracy: true }
         );
       };
     </script>
